@@ -58,7 +58,7 @@ def densenet(images, num_classes=1001, is_training=False,
     def reduce_dim(input_feature):
         return int(int(input_feature.shape[-1]) * compression_rate)
 
-    end_points = {}#这个应该是储存节点的意思吧？
+    end_points = {}#这个应该是储存节点的意思吧
     
     #Transition Layer
     def transition(net,scope='transition'):
@@ -66,39 +66,41 @@ def densenet(images, num_classes=1001, is_training=False,
         
         current = slim.batch_norm(net, scope=scope + '_bn')#我看论文里面好像卷积之前要先做一次batch normlizition
         current = slim.conv2d(current,num, [1, 1],scope=scope+'_conv')
-        current = slim.avg_pool2d(current,[2,2],stride=2,scope=scope+'_pool')
+        current = slim.avg_pool2d(current,[2,2],stride=2,padding='VALID',scope=scope+'_pool')
         return current
             
     with tf.variable_scope(scope, 'DenseNet', [images, num_classes]):
         with slim.arg_scope(bn_drp_scope(is_training=is_training,
                                          keep_prob=dropout_keep_prob)) as ssc:
-            
-            conv_1=slim.conv2d(images,2*growth, [7, 7],stride=2,scope=scope + '_conv7x7_1')
+            #224*224*3
+            conv_1=slim.conv2d(images,2*growth, [7, 7],stride=2,padding='SAME',scope=scope + '_conv7x7_1')
             end_points['conv_1']=conv_1
             
-            pool_1=slim.max_pool2d(conv_1, [3,3], stride=2, padding='VALID')
+            #112*112*48
+            pool_1=slim.max_pool2d(conv_1, [3,3], stride=2,padding='SAME')
             end_points['pool_1']=pool_1
-            
+            #56*56*48
             dens_block_1=block(pool_1, 6, growth,scope='block_1')
             trans_layer_1=transition(dens_block_1,scope='transition_1')
             end_points['trans_layer_1']=trans_layer_1
-            
+            #28*28*144
             dens_block_2=block(trans_layer_1, 12, growth,scope='block_2')
             trans_layer_2=transition(dens_block_2,scope='transition_2')
             end_points['trans_layer_2']=trans_layer_2
-            
+            #14*14*288
             dens_block_3=block(trans_layer_2, 24, growth,scope='block_3')
             trans_layer_3=transition(dens_block_3,scope='transition_3')
             end_points['trans_layer_3']=trans_layer_3
-            
+            #7*7*576
             dens_block_4=block(trans_layer_3, 16, growth,scope='block_4')
             end_points['dens_block_4']=dens_block_4
             
-            n=dens_block_4.shape[1]
-            pool_global=slim.avg_pool2d(dens_block_4, [n,n],padding='VALID',scope=scope+'pool_global')
-            end_points['pool_global']=pool_global
-            
-            logits=slim.FullyConnected(pool_global,num_classes,scope=scope+'fc')
+            #7*7*384
+            Global_Pool = tf.reduce_mean(dens_block_4, [1, 2], keep_dims=True, name='Global_Pool')
+            end_points['global_pool'] = Global_Pool
+
+            #1*1*384
+            logits=slim.FullyConnected(Global_Pool,num_classes,scope=scope+'fc')
             end_points['logits']=logits
             
             
