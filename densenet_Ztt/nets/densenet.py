@@ -98,10 +98,16 @@ def densenet(images, num_classes=1001, is_training=False,
             #7*7*384
             Global_Pool = tf.reduce_mean(dens_block_4, [1, 2], keep_dims=True, name='Global_Pool')
             end_points['global_pool'] = Global_Pool
-
+            
             #1*1*384
-            logits=slim.FullyConnected(Global_Pool,num_classes,scope=scope+'fc')
+            #按我的理解应该是将张量去住高和宽两个维度，转换为一个向量
+            logits = tf.squeeze(Global_Pool, [1, 2], name='SpatialSqueeze')
+            #384
+            
+
+            logits=slim.fully_connected(logits,num_classes,scope=scope+'fc')
             end_points['logits']=logits
+            end_points['predictions'] = slim.softmax(logits, scope='predictions')
             
             
             ##########################
