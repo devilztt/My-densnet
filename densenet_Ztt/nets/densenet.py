@@ -20,14 +20,14 @@ def bn_act_conv_drp(current, num_outputs, kernel_size, scope='block'):
     return current
 
 #dense block 每一层先1*1的卷积 再3*3卷积 目的是减少输入的feature map数量，既能降维减少计算量，又能融合各个通道的特征
-# tmp 表示这一层的输出，concat对前面所有层的输出进行累加（拼接）
+# tmp 表示这一层的输出，concat对前面所有层的输出进行累加（拼接），每层以之前全部层的输出为输入
 def block(net, layers, growth, scope='block'):
     for idx in range(layers):
         bottleneck = bn_act_conv_drp(net, 4 * growth, [1, 1],
                                      scope=scope + '_conv1x1' + str(idx))
         tmp = bn_act_conv_drp(bottleneck, growth, [3, 3],
                               scope=scope + '_conv3x3' + str(idx))
-        net = tf.concat(axis=3, values=[net, tmp])
+        net = tf.concat(axis=3, values=[net, tmp])#feature map相连接
     return net
 
  
@@ -72,7 +72,7 @@ def densenet(images, num_classes=1001, is_training=False,
             
     with tf.variable_scope(scope, 'DenseNet', [images, num_classes]):
         with slim.arg_scope(bn_drp_scope(is_training=is_training,keep_prob=dropout_keep_prob)) as ssc:
-                with slim.arg_scope([slim.conv2d, slim.fully_connected],
+                with slim.arg_scope([slim.conv2d, slim.fully_connected],#权重初始化，以及权重添加正则
                       activation_fn=tf.nn.relu,
                       weights_initializer=trunc_normal(0.01),
                       weights_regularizer=slim.l2_regularizer(0.0005)):
@@ -104,19 +104,19 @@ def densenet(images, num_classes=1001, is_training=False,
                     end_points['global_pool'] = Global_Pool
 
                     #1*1*384
-                    #按我的理解应该是将张量去住高和宽两个维度，转换为一个向量
-                    logits = tf.squeeze(Global_Pool, [1, 2], name='SpatialSqueeze')
+                    #logits = tf.squeeze(Global_Pool, [1, 2], name='SpatialSqueeze')
                     #384
+                    #logits=tf.squeeze(tf.contrib.slim.conv2d(h_fc1_drop, 10, [1,1], activation_fn=None))
 
-
-                    logits=slim.fully_connected(logits,num_classes,scope=scope+'fc')
+                    logits=tf.squeeze(slim.fully_connected(Global_Pool,num_classes,activation_fn=None,scope=scope+'logits'))
                     end_points['logits']=logits
                     end_points['predictions'] = slim.softmax(logits, scope='predictions')
             
             
-            ##########################
-            # Put your code here.
-            ##########################
+            ###########################################################################################################
+            # #助哥，我实在是不知道我的网络哪里实现的有问题了，完全是按照论文的结构来的呀，但是就是收敛不了，我特意将权重也进行截尾正态
+            ##初始化了，理论上应该不会是卷积核等的权重问题吧.
+            #########################################################################################################
 
     return logits, end_points
 
