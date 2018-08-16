@@ -9,9 +9,9 @@ import tensorflow as tf
 slim = tf.contrib.slim
 
 
-def trunc_normal(stddev): return tf.truncated_normal_initializer(stddev=stddev)#参数初始化
+def trunc_normal(stddev): return tf.truncated_normal_initializer(stddev=stddev)#参数初始化方式
 
-#H变换 batch-relu-conv-drop
+#论文中的H变换 batch-relu-conv-drop
 def bn_act_conv_drp(current, num_outputs, kernel_size, scope='block'):
     current = slim.batch_norm(current, scope=scope + '_bn')
     current = tf.nn.relu(current)
@@ -19,7 +19,8 @@ def bn_act_conv_drp(current, num_outputs, kernel_size, scope='block'):
     current = slim.dropout(current, scope=scope + '_dropout')
     return current
 
-#dense block 每一层先1*1 再3*3 tmp 表示这一层的输出，net对前面所有层进行累加（拼接）
+#dense block 每一层先1*1的卷积 再3*3卷积 目的是减少输入的feature map数量，既能降维减少计算量，又能融合各个通道的特征
+# tmp 表示这一层的输出，concat对前面所有层的输出进行累加（拼接）
 def block(net, layers, growth, scope='block'):
     for idx in range(layers):
         bottleneck = bn_act_conv_drp(net, 4 * growth, [1, 1],
@@ -70,44 +71,48 @@ def densenet(images, num_classes=1001, is_training=False,
         return current
             
     with tf.variable_scope(scope, 'DenseNet', [images, num_classes]):
-        with slim.arg_scope(bn_drp_scope(is_training=is_training,
-                                         keep_prob=dropout_keep_prob)) as ssc:
-            #224*224*3
-            conv_1=slim.conv2d(images,2*growth, [7, 7],stride=2,padding='SAME',scope=scope + '_conv7x7_1')
-            end_points['conv_1']=conv_1
-            
-            #112*112*48
-            pool_1=slim.max_pool2d(conv_1, [3,3], stride=2,padding='SAME')
-            end_points['pool_1']=pool_1
-            #56*56*48
-            dens_block_1=block(pool_1, 6, growth,scope='block_1')
-            trans_layer_1=transition(dens_block_1,scope='transition_1')
-            end_points['trans_layer_1']=trans_layer_1
-            #28*28*144
-            dens_block_2=block(trans_layer_1, 12, growth,scope='block_2')
-            trans_layer_2=transition(dens_block_2,scope='transition_2')
-            end_points['trans_layer_2']=trans_layer_2
-            #14*14*288
-            dens_block_3=block(trans_layer_2, 24, growth,scope='block_3')
-            trans_layer_3=transition(dens_block_3,scope='transition_3')
-            end_points['trans_layer_3']=trans_layer_3
-            #7*7*576
-            dens_block_4=block(trans_layer_3, 16, growth,scope='block_4')
-            end_points['dens_block_4']=dens_block_4
-            
-            #7*7*384
-            Global_Pool = tf.reduce_mean(dens_block_4, [1, 2], keep_dims=True, name='Global_Pool')
-            end_points['global_pool'] = Global_Pool
-            
-            #1*1*384
-            #按我的理解应该是将张量去住高和宽两个维度，转换为一个向量
-            logits = tf.squeeze(Global_Pool, [1, 2], name='SpatialSqueeze')
-            #384
-            
+        with slim.arg_scope(bn_drp_scope(is_training=is_training,keep_prob=dropout_keep_prob)) as ssc:
+			with slim.arg_scope([slim.conv2d, slim.fully_connected],
+                      activation_fn=tf.nn.relu,
+                      weights_initializer=trunc_normal(0.01),
+                      weights_regularizer=slim.l2_regularizer(0.0005)):
+										 
+				#224*224*3
+				conv_1=slim.conv2d(images,2*growth, [7, 7],stride=2,padding='SAME',scope=scope + '_conv7x7_1')
+				end_points['conv_1']=conv_1
+				
+				#112*112*48
+				pool_1=slim.max_pool2d(conv_1, [3,3], stride=2,padding='SAME')
+				end_points['pool_1']=pool_1
+				#56*56*48
+				dens_block_1=block(pool_1, 6, growth,scope='block_1')
+				trans_layer_1=transition(dens_block_1,scope='transition_1')
+				end_points['trans_layer_1']=trans_layer_1
+				#28*28*144
+				dens_block_2=block(trans_layer_1, 12, growth,scope='block_2')
+				trans_layer_2=transition(dens_block_2,scope='transition_2')
+				end_points['trans_layer_2']=trans_layer_2
+				#14*14*288
+				dens_block_3=block(trans_layer_2, 24, growth,scope='block_3')
+				trans_layer_3=transition(dens_block_3,scope='transition_3')
+				end_points['trans_layer_3']=trans_layer_3
+				#7*7*576
+				dens_block_4=block(trans_layer_3, 16, growth,scope='block_4')
+				end_points['dens_block_4']=dens_block_4
+				
+				#7*7*384
+				Global_Pool = tf.reduce_mean(dens_block_4, [1, 2], keep_dims=True, name='Global_Pool')
+				end_points['global_pool'] = Global_Pool
+				
+				#1*1*384
+				#按我的理解应该是将张量去住高和宽两个维度，转换为一个向量
+				logits = tf.squeeze(Global_Pool, [1, 2], name='SpatialSqueeze')
+				#384
+				
 
-            logits=slim.fully_connected(logits,num_classes,scope=scope+'fc')
-            end_points['logits']=logits
-            end_points['predictions'] = slim.softmax(logits, scope='predictions')
+				logits=slim.fully_connected(logits,num_classes,scope=scope+'fc')
+				end_points['logits']=logits
+				end_points['predictions'] = slim.softmax(logits, scope='predictions')
             
             
             ##########################
